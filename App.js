@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { pipeline, env } from '@xenova/transformers';
+import tw from 'twrnc';
+
 
 env.allowLocalModels = false;
 
@@ -13,7 +15,10 @@ export default function App() {
   // Load the model
   const loadModel = async () => {
     try {
-      const classifier = await pipeline('image-classification', 'Factral/test25');
+      const classifier = await pipeline('image-classification', 'CristianR8/test-detection',{
+        quantized: true
+      });
+      console.log('Model loaded successfully');
       setStatus('Ready');
       return classifier;
     } catch (error) {
@@ -38,7 +43,7 @@ export default function App() {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 1,
-        base64: true, // Ensures the image is returned as a base64 string
+        base64: true, 
       });
 
       console.log('Image picker result:', result);
@@ -82,66 +87,31 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.status}>{status}</Text>
+    <View style={tw`flex-1 justify-center items-center p-5 bg-gray-100`}>
+      <Text style={tw`mb-5 text-lg font-semibold text-gray-800`}>{status}</Text>
 
       {imageUri ? (
-        <Image source={{ uri: imageUri }} style={styles.image} resizeMode="contain" />
+        <Image source={{ uri: imageUri }} style={tw`w-72 h-72 mb-5 rounded-lg border border-gray-300 shadow-lg`} resizeMode="contain" />
       ) : (
-        <Text>No image selected</Text>
+        <Text style={tw`text-center text-gray-500`}>No image selected</Text>
       )}
 
       {prediction && (
-        <Text style={styles.prediction}>
-          Prediction: {prediction.label} {'\n'} Probability: {prediction.score}
-        </Text>
+        <View style={tw`mb-5 bg-white p-4 rounded-lg shadow-md w-72`}>
+          <Text style={tw`text-center text-gray-800 font-medium`}>Prediction: {prediction.label}</Text>
+          <Text style={tw`text-center text-gray-600 mt-1`}>Probability: {prediction.score}</Text>
+        </View>
       )}
 
-      <TouchableOpacity style={styles.button} onPress={handleImagePick}>
-        <Text style={styles.buttonText}>Upload Image</Text>
+      <TouchableOpacity style={tw`bg-blue-500 mt-4 px-4 py-2 rounded-lg shadow-lg w-72 text-center hover:bg-blue-600`} onPress={handleImagePick}>
+        <Text style={tw`text-white text-lg font-medium`}>Upload Image</Text>
       </TouchableOpacity>
 
       {imageUri && (
-        <TouchableOpacity style={styles.button} onPress={resetImage}>
-          <Text style={styles.buttonText}>Reset Image</Text>
+        <TouchableOpacity style={tw`bg-red-500 px-4 py-2 rounded-lg shadow-lg w-72 text-center mt-4 hover:bg-red-600`} onPress={resetImage}>
+          <Text style={tw`text-white text-lg font-medium`}>Reset Image</Text>
         </TouchableOpacity>
       )}
-    </View>
+    </View> 
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  status: {
-    marginBottom: 20,
-    fontSize: 16,
-  },
-  image: {
-    width: 300,
-    height: 300,
-    marginBottom: 20,
-    borderRadius: 10,
-    borderColor: '#CCC',
-    borderWidth: 1,
-  },
-  prediction: {
-    marginBottom: 20,
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: '#007BFF',
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 10,
-  },
-  buttonText: {
-    color: '#FFF',
-    fontSize: 16,
-  },
-});
