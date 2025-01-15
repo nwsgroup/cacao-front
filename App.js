@@ -1,157 +1,110 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button, Image, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
-import { pipeline, env } from '@fugood/transformers';
+import { pipeline, env } from '@xenova/transformers';
 
-// Set up environment
 env.allowLocalModels = false;
 
 export default function App() {
   const [status, setStatus] = useState('Loading model...');
   const [imageUri, setImageUri] = useState(null);
   const [prediction, setPrediction] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasPermission, setHasPermission] = useState(null);
 
-  // Load the model and check permissions
+  // Load the model
+  const loadModel = async () => {
+    try {
+      const classifier = await pipeline('image-classification', 'Factral/test25');
+      setStatus('Ready');
+      return classifier;
+    } catch (error) {
+      console.error('Error loading model:', error);
+      setStatus('Failed to load model');
+    }
+  };
+
   const [classifier, setClassifier] = useState(null);
-  useEffect(() => {
+
+  React.useEffect(() => {
     (async () => {
-      try {
-        // Check and request permissions
-        const mediaLibraryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        setHasPermission(mediaLibraryPermission.status === 'granted');
-        
-        // Load the model
-        const model = await pipeline('image-classification', 'Factral/test25');
-        setClassifier(model);
-        setStatus('Ready');
-      } catch (error) {
-        console.error('Error during initialization:', error);
-        setStatus('Error initializing app');
-      }
+      const loadedClassifier = await loadModel();
+      setClassifier(() => loadedClassifier);
     })();
   }, []);
 
-  // Function to handle image picking
-  const pickImage = async () => {
-    if (!hasPermission) {
-      setStatus('Permission denied');
-      return;
-    }
-
+  const handleImagePick = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
+        aspect: [4, 3],
         quality: 1,
+        base64: true, // Ensures the image is returned as a base64 string
       });
 
-      if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        // Ensure we have a local file URI
-        const fileInfo = await FileSystem.getInfoAsync(uri);
-        if (fileInfo.exists) {
-          setImageUri(uri);
-          await classifyImage(uri);
+      console.log('Image picker result:', result);
+      console.log('Assets:', result.assets);
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setImageUri(asset.uri);
+        setPrediction(null);
+        if (classifier) {
+          await analyzeImage(asset.base64); 
         } else {
-          throw new Error('Selected image file does not exist');
+          setStatus('Model not loaded yet');
         }
+      } else {
+        setStatus('Image selection canceled or invalid');
       }
     } catch (error) {
-      console.error('Error picking image:', error);
-      setStatus('Error selecting image');
+      console.error('Error during image selection:', error);
+      setStatus('Failed to select image');
     }
   };
 
-  // Function to classify the image
-  const classifyImage = async (uri) => {
-    if (!classifier) {
-      setStatus('Model not ready');
-      return;
-    }
-
-    setIsLoading(true);
-    setStatus('Analyzing image...');
-
+  const analyzeImage = async (base64) => {
     try {
-      // For Android, we might need to prepend 'file://' to the URI
-      const processedUri = Platform.OS === 'android' ? 'file://' + uri : uri;
-      
-      const result = await classifier(processedUri, { 
-        topk: 1,
-        // Add any additional model-specific parameters here
-      });
-
-      setPrediction(`Prediction: ${result[0].label} | Confidence: ${(result[0].score * 100).toFixed(2)}%`);
-      setStatus('Analysis complete');
+      setStatus('Analyzing...');
+      const dataUri = `data:image/jpeg;base64,${base64}`;
+      const output = await classifier(dataUri, { topk: 1 });
+      setStatus('');
+      setPrediction(output[0]);
     } catch (error) {
-      console.error('Error classifying image:', error);
-      setStatus('Error analyzing image');
-      setPrediction(null);
-    } finally {
-      setIsLoading(false);
+      console.error('Error analyzing image:', error);
+      setStatus('Analysis failed');
     }
   };
 
-  // Reset image and state
   const resetImage = () => {
     setImageUri(null);
     setPrediction(null);
     setStatus('Ready');
   };
 
-  // If permissions haven't been checked yet
-  if (hasPermission === null) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#0000ff" />
-        <Text>Checking permissions...</Text>
-      </View>
-    );
-  }
-
-  // If permissions were denied
-  if (hasPermission === false) {
-    return (
-      <View style={styles.container}>
-        <Text>No access to media library. Please enable permissions in your device settings.</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <Text style={styles.status}>{status}</Text>
-      {imageUri && (
-        <Image 
-          source={{ uri: imageUri }} 
-          style={styles.image}
-          onError={(error) => {
-            console.error('Error loading image:', error);
-            setStatus('Error loading image');
-            resetImage();
-          }}
-        />
+
+      {imageUri ? (
+        <Image source={{ uri: imageUri }} style={styles.image} resizeMode="contain" />
+      ) : (
+        <Text>No image selected</Text>
       )}
-      {!imageUri && (
-        <TouchableOpacity 
-          onPress={pickImage} 
-          style={styles.uploadButton}
-          disabled={isLoading}
-        >
-          <Text style={styles.uploadText}>Upload Image</Text>
+
+      {prediction && (
+        <Text style={styles.prediction}>
+          Prediction: {prediction.label} {'\n'} Probability: {prediction.score}
+        </Text>
+      )}
+
+      <TouchableOpacity style={styles.button} onPress={handleImagePick}>
+        <Text style={styles.buttonText}>Upload Image</Text>
+      </TouchableOpacity>
+
+      {imageUri && (
+        <TouchableOpacity style={styles.button} onPress={resetImage}>
+          <Text style={styles.buttonText}>Reset Image</Text>
         </TouchableOpacity>
-      )}
-      {isLoading && <ActivityIndicator size="large" color="#0000ff" />}
-      {prediction && <Text style={styles.prediction}>{prediction}</Text>}
-      {imageUri && (
-        <Button 
-          title="Reset" 
-          onPress={resetImage}
-          disabled={isLoading}
-        />
       )}
     </View>
   );
@@ -160,42 +113,35 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
-    backgroundColor: '#fff',
   },
   status: {
-    fontSize: 18,
-    marginBottom: 10,
-    textAlign: 'center',
+    marginBottom: 20,
+    fontSize: 16,
   },
   image: {
     width: 300,
     height: 300,
-    resizeMode: 'contain',
-    marginBottom: 10,
-    backgroundColor: '#f0f0f0',
-  },
-  uploadButton: {
-    backgroundColor: '#007bff',
-    padding: 15,
-    borderRadius: 8,
-    width: 200,
-    alignItems: 'center',
-  },
-  uploadText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    marginBottom: 20,
+    borderRadius: 10,
+    borderColor: '#CCC',
+    borderWidth: 1,
   },
   prediction: {
+    marginBottom: 20,
     fontSize: 16,
-    marginTop: 10,
     textAlign: 'center',
+  },
+  button: {
+    backgroundColor: '#007BFF',
     padding: 10,
-    backgroundColor: '#f8f9fa',
     borderRadius: 5,
-    width: '100%',
+    marginTop: 10,
+  },
+  buttonText: {
+    color: '#FFF',
+    fontSize: 16,
   },
 });
